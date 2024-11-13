@@ -1,0 +1,383 @@
+**********************************************************************
+*******************************Acciones*******************************
+**********************************************************************
+
+--------------------
+Reduce
+--------------------
+
+from pyspark.sql import SparkSession
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+    .appName("EjemploCollect") \
+    .getOrCreate()
+
+# Crear RDD con datos de productos
+productos = spark.sparkContext.parallelize([
+    ("Laptop", 1200, 5),
+    ("Smartphone", 800, 10),
+    ("Tablet", 500, 8),
+    ("Smartwatch", 300, 15),
+    ("Auriculares", 150, 20)
+])
+
+# Transformar datos para obtener valor total por producto
+productos_valor = productos.map(lambda x: (x[0], x[1] * x[2]))
+
+# Usar collect para obtener todos los resultados
+resultados = productos_valor.collect()
+
+# Mostrar los resultados
+print("INVENTARIO - VALOR TOTAL POR PRODUCTO:")
+for producto, valor in resultados:
+    print(f"Producto: {producto}, Valor Total: ${valor}")
+
+# Conclusiones sobre el desempeño
+print("\nCONCLUSIONES DEL ANÁLISIS:")
+print("1. La función collect recuperó exitosamente todos los datos procesados")
+print("2. La transformación map se ejecutó de manera distribuida antes de collect")
+print("3. Los resultados se centralizaron eficientemente para su visualización")
+
+# Detener la sesión de Spark
+spark.stop()
+
+
+--------------------
+Collet
+--------------------
+
+from pyspark.sql import SparkSession
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+    .appName("EjemploCollect") \
+    .getOrCreate()
+
+# Crear RDD con datos de productos
+productos = spark.sparkContext.parallelize([
+    ("Laptop", 1200, 5),
+    ("Smartphone", 800, 10),
+    ("Tablet", 500, 8),
+    ("Smartwatch", 300, 15),
+    ("Auriculares", 150, 20)
+])
+
+# Transformar datos para obtener valor total por producto
+productos_valor = productos.map(lambda x: (x[0], x[1] * x[2]))
+
+# Usar collect para obtener todos los resultados
+resultados = productos_valor.collect()
+
+# Mostrar los resultados
+print("INVENTARIO - VALOR TOTAL POR PRODUCTO:")
+for producto, valor in resultados:
+    print(f"Producto: {producto}, Valor Total: ${valor}")
+
+# Detener la sesión de Spark
+spark.stop()
+
+--------------------
+Count
+--------------------
+
+from pyspark.sql import SparkSession
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+    .appName("EjemploCount") \
+    .getOrCreate()
+
+# Crear RDD con datos de estudiantes y sus calificaciones
+estudiantes = spark.sparkContext.parallelize([
+    ("Ana", 95),
+    ("Carlos", 78),
+    ("Diana", 88),
+    ("Eduardo", 92),
+    ("Fernanda", 85),
+    ("Gabriel", 76),
+    ("Helena", 91),
+    ("Ivan", 73)
+])
+
+# Filtrar estudiantes con calificaciones superiores a 85
+estudiantes_destacados = estudiantes.filter(lambda x: x[1] > 85)
+
+# Contar el número total de estudiantes
+total_estudiantes = estudiantes.count()
+
+# Contar estudiantes destacados
+total_destacados = estudiantes_destacados.count()
+
+# Mostrar resultados
+print("ANÁLISIS DE CALIFICACIONES:")
+print(f"Total de estudiantes: {total_estudiantes}")
+print(f"Estudiantes destacados: {total_destacados}")
+print(f"Porcentaje de estudiantes destacados: {(total_destacados/total_estudiantes)*100:.2f}%")
+
+# Detener la sesión de Spark
+spark.stop()
+
+--------------------
+first
+--------------------
+
+from pyspark.sql import SparkSession
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+    .appName("EjemploFirst") \
+    .getOrCreate()
+
+# Crear RDD con datos de sensores de temperatura
+datos_temperatura = spark.sparkContext.parallelize([
+    ("Sensor1", "2024-01-15", 22.5),
+    ("Sensor2", "2024-01-15", 23.8),
+    ("Sensor3", "2024-01-15", 21.2),
+    ("Sensor4", "2024-01-15", 24.1),
+    ("Sensor5", "2024-01-15", 22.9)
+])
+
+# Filtrar temperaturas superiores a 23°C
+temperaturas_altas = datos_temperatura.filter(lambda x: x[2] > 23)
+
+# Obtener el primer registro de temperaturas altas
+primera_lectura_alta = temperaturas_altas.first()
+
+# Mostrar resultados
+print("ANÁLISIS DE TEMPERATURAS:")
+print(f"Primera lectura con temperatura alta:")
+print(f"Sensor: {primera_lectura_alta[0]}")
+print(f"Fecha: {primera_lectura_alta[1]}")
+print(f"Temperatura: {primera_lectura_alta[2]}°C")
+
+# Detener la sesión de Spark
+spark.stop()
+
+--------------------
+Take
+--------------------
+
+from pyspark.sql import SparkSession
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+    .appName("EjemploTake") \
+    .getOrCreate()
+
+# Crear RDD con datos de transacciones bancarias
+transacciones = spark.sparkContext.parallelize([
+    ("T001", "2024-01-15", 1500.00, "Depósito"),
+    ("T002", "2024-01-15", 2300.50, "Retiro"),
+    ("T003", "2024-01-15", 800.75, "Depósito"),
+    ("T004", "2024-01-15", 3200.00, "Transferencia"),
+    ("T005", "2024-01-15", 1200.25, "Depósito"),
+    ("T006", "2024-01-15", 4500.00, "Transferencia"),
+    ("T007", "2024-01-15", 950.50, "Retiro")
+])
+
+# Filtrar transacciones mayores a 1000
+transacciones_grandes = transacciones.filter(lambda x: x[2] > 1000)
+
+# Tomar las primeras 3 transacciones grandes
+muestra_transacciones = transacciones_grandes.take(3)
+
+# Mostrar resultados
+print("ANÁLISIS DE TRANSACCIONES:")
+print("Primeras 3 transacciones grandes:")
+for t in muestra_transacciones:
+    print(f"ID: {t[0]}, Fecha: {t[1]}, Monto: ${t[2]}, Tipo: {t[3]}")
+
+# Detener la sesión de Spark
+spark.stop()
+
+--------------------
+SaveAsTexFile
+--------------------
+from pyspark.sql import SparkSession
+import os
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+    .appName("EjemploSaveAsTextFile") \
+    .getOrCreate()
+
+# Crear RDD con datos de ventas mensuales
+ventas_mensuales = spark.sparkContext.parallelize([
+    ("2024-01", "Región Norte", "Electrónicos", 25000),
+    ("2024-01", "Región Sur", "Electrónicos", 18000),
+    ("2024-01", "Región Norte", "Hogar", 15000),
+    ("2024-01", "Región Sur", "Hogar", 12000),
+    ("2024-01", "Región Norte", "Ropa", 22000),
+    ("2024-01", "Región Sur", "Ropa", 20000)
+])
+
+# Transformar datos para el reporte
+reporte_ventas = ventas_mensuales.map(
+    lambda x: f"Período: {x[0]}, Región: {x[1]}, Categoría: {x[2]}, Ventas: ${x[3]}"
+)
+
+# Definir ruta de salida
+ruta_salida = "./datos_ventas_output"
+
+# Guardar el reporte como archivo de texto
+reporte_ventas.saveAsTextFile(ruta_salida)
+
+# Mostrar confirmación
+print("REPORTE DE VENTAS:")
+print(f"Los datos han sido guardados en: {ruta_salida}")
+
+# Detener la sesión de Spark
+spark.stop()
+--------------------
+Max & Min
+--------------------
+from pyspark.sql import SparkSession
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+    .appName("EjemploMaxMin") \
+    .getOrCreate()
+
+# Crear RDD con datos de consumo energético por hora
+consumo_energia = spark.sparkContext.parallelize([
+    ("2024-01-15 00:00", 450.5, "Zona A"),
+    ("2024-01-15 01:00", 380.2, "Zona A"),
+    ("2024-01-15 02:00", 320.8, "Zona A"),
+    ("2024-01-15 00:00", 520.3, "Zona B"),
+    ("2024-01-15 01:00", 480.7, "Zona B"),
+    ("2024-01-15 02:00", 410.9, "Zona B")
+])
+
+# Extraer solo los valores de consumo
+valores_consumo = consumo_energia.map(lambda x: x[1])
+
+# Obtener consumo máximo y mínimo
+consumo_maximo = valores_consumo.max()
+consumo_minimo = valores_consumo.min()
+
+# Encontrar registros con consumo máximo y mínimo
+registro_max = consumo_energia.filter(lambda x: x[1] == consumo_maximo).collect()
+registro_min = consumo_energia.filter(lambda x: x[1] == consumo_minimo).collect()
+
+# Mostrar resultados
+print("ANÁLISIS DE CONSUMO ENERGÉTICO:")
+print(f"\nConsumo Máximo:")
+print(f"Hora: {registro_max[0][0]}")
+print(f"Consumo: {registro_max[0][1]} kWh")
+print(f"Zona: {registro_max[0][2]}")
+
+print(f"\nConsumo Mínimo:")
+print(f"Hora: {registro_min[0][0]}")
+print(f"Consumo: {registro_min[0][1]} kWh")
+print(f"Zona: {registro_min[0][2]}")
+
+# Detener la sesión de Spark
+spark.stop()
+
+--------------------
+CountByKey
+--------------------
+
+from pyspark.sql import SparkSession
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+    .appName("EjemploCountByKey") \
+    .getOrCreate()
+
+# Crear RDD con datos de pedidos online
+pedidos = spark.sparkContext.parallelize([
+    ("Electrónicos", "Laptop"),
+    ("Ropa", "Camiseta"),
+    ("Electrónicos", "Smartphone"),
+    ("Hogar", "Lámpara"),
+    ("Ropa", "Pantalón"),
+    ("Electrónicos", "Tablet"),
+    ("Hogar", "Mesa"),
+    ("Ropa", "Zapatos")
+])
+
+# Contar productos por categoría usando countByKey
+conteo_por_categoria = pedidos.countByKey()
+
+# Mostrar resultados
+print("ANÁLISIS DE PEDIDOS POR CATEGORÍA:")
+for categoria, cantidad in conteo_por_categoria.items():
+    print(f"Categoría: {categoria}, Cantidad de productos: {cantidad}")
+
+# Detener la sesión de Spark
+spark.stop()
+
+--------------------
+Foreach
+--------------------
+from pyspark.sql import SparkSession
+import json
+
+# Inicializar SparkSession
+spark = SparkSession.builder \
+    .appName("EjemploForeachConResultados") \
+    .master("local[*]") \
+    .getOrCreate()
+
+# Crear datos de ejemplo: lista de ventas
+datos_ventas = [
+    {"producto": "Laptop", "precio": 1200, "cantidad": 3},
+    {"producto": "Mouse", "precio": 25, "cantidad": 10},
+    {"producto": "Teclado", "precio": 45, "cantidad": 5},
+    {"producto": "Monitor", "precio": 200, "cantidad": 4},
+    {"producto": "Disco Duro", "precio": 80, "cantidad": 8}
+]
+
+# Crear RDD a partir de los datos
+ventas_rdd = spark.sparkContext.parallelize(datos_ventas)
+
+# Vamos a almacenar los resultados en una lista para poder verlos
+resultados = []
+
+# Calcular el total por venta y almacenarlo
+def procesar_venta(venta):
+    total = venta['precio'] * venta['cantidad']
+    resultado = {
+        'producto': venta['producto'],
+        'total_venta': total,
+        'unidades': venta['cantidad']
+    }
+    resultados.append(resultado)
+
+# Usar foreach para procesar cada venta
+print("Procesando ventas...")
+ventas_rdd.foreach(procesar_venta)
+
+# Imprimir los resultados de forma ordenada
+print("\nResumen de Ventas:")
+print("-" * 50)
+print(f"{'Producto':<15} {'Unidades':<10} {'Total Venta':>12}")
+print("-" * 50)
+
+for r in sorted(resultados, key=lambda x: x['total_venta'], reverse=True):
+    print(f"{r['producto']:<15} {r['unidades']:<10} ${r['total_venta']:>11,.2f}")
+
+print("-" * 50)
+total_general = sum(r['total_venta'] for r in resultados)
+print(f"{'Total General:':<26} ${total_general:>11,.2f}")
+
+# Ejemplo 2: Procesamiento con categorización
+def categorizar_venta(venta):
+    total = venta['precio'] * venta['cantidad']
+    if total > 1000:
+        categoria = "Alta"
+    elif total > 500:
+        categoria = "Media"
+    else:
+        categoria = "Baja"
+    
+    print(f"Venta {venta['producto']}: ${total:,.2f} - Categoría: {categoria}")
+
+print("\nCategorización de Ventas:")
+print("-" * 50)
+ventas_rdd.foreach(categorizar_venta)
+
+# Detener la sesión de Spark
+spark.stop()

@@ -1,0 +1,775 @@
+******************************************************************************
+*******************************Transformaciones*******************************
+******************************************************************************
+
+--------------------
+Map
+--------------------
+
+# Instalar pyspark
+!pip install pyspark
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import udf
+from pyspark.sql.types import StructType, StructField, StringType, FloatType, ArrayType
+import json
+from datetime import datetime
+
+# Inicializar Sesión Spark
+spark = SparkSession.builder \
+    .appName("Análisis Complejo de Ventas") \
+    .getOrCreate()
+
+# Definir el esquema de los datos
+esquema = StructType([
+    StructField("id_transaccion", StringType(), True),
+    StructField("info_cliente", StringType(), True),  # cadena JSON
+    StructField("productos", StringType(), True),     # array JSON
+    StructField("marca_temporal", StringType(), True),
+    StructField("ubicacion_tienda", StringType(), True)
+])
+
+# Datos de ejemplo
+datos = [
+    ("T123", 
+     '{"id": "C1", "nombre": "Juan Pérez", "nivel": "oro"}',
+     '[{"id": "P1", "nombre": "Portátil", "precio": 999.99, "cantidad": 1}, {"id": "P2", "nombre": "Ratón", "precio": 24.99, "cantidad": 2}]',
+     "2024-03-13 14:30:00",
+     "Madrid-Centro"
+    ),
+    ("T124",
+     '{"id": "C2", "nombre": "María García", "nivel": "plata"}',
+     '[{"id": "P3", "nombre": "Monitor", "precio": 299.99, "cantidad": 1}]',
+     "2024-03-13 15:45:00",
+     "Barcelona-Norte"
+    )
+]
+
+# Crear DataFrame
+df = spark.createDataFrame(datos, esquema)
+
+# Función para analizar JSON de cliente
+def analizar_info_cliente(cadena_json):
+    info = json.loads(cadena_json)
+    return {
+        "id_cliente": info["id"],
+        "nombre_cliente": info["nombre"],
+        "nivel_cliente": info["nivel"]
+    }
+
+# Función para calcular total de productos y aplicar descuentos
+def procesar_productos(productos_json):
+    productos = json.loads(productos_json)
+    total = 0
+    articulos = []
+    
+    for producto in productos:
+        subtotal = producto["precio"] * producto["cantidad"]
+        total += subtotal
+        articulos.append({
+            "id_producto": producto["id"],
+            "nombre_producto": producto["nombre"],
+            "cantidad": producto["cantidad"],
+            "subtotal": subtotal
+        })
+    
+    return {
+        "articulos": articulos,
+        "total_sin_descuento": total,
+        "total_con_descuento": total * 0.9 if len(productos) > 1 else total  # 10% descuento para múltiples artículos
+    }
+
+# Registrar Funciones Definidas por Usuario (UDF)
+udf_analizar_cliente = udf(analizar_info_cliente, 
+    StructType([
+        StructField("id_cliente", StringType(), True),
+        StructField("nombre_cliente", StringType(), True),
+        StructField("nivel_cliente", StringType(), True)
+    ]))
+
+udf_procesar_productos = udf(procesar_productos,
+    StructType([
+        StructField("articulos", ArrayType(
+            StructType([
+                StructField("id_producto", StringType(), True),
+                StructField("nombre_producto", StringType(), True),
+                StructField("cantidad", FloatType(), True),
+                StructField("subtotal", FloatType(), True)
+            ])
+        ), True),
+        StructField("total_sin_descuento", FloatType(), True),
+        StructField("total_con_descuento", FloatType(), True)
+    ]))
+
+# Aplicar transformaciones usando map
+df_transformado = df.select(
+    "id_transaccion",
+    udf_analizar_cliente("info_cliente").alias("cliente"),
+    udf_procesar_productos("productos").alias("detalles_pedido"),
+    "marca_temporal",
+    "ubicacion_tienda"
+)
+
+# Mostrar resultados
+df_transformado.show(truncate=False)
+
+# Análisis adicional usando map para calcular métricas por tienda
+metricas_tienda = df_transformado.rdd.map(
+    lambda fila: (
+        fila.ubicacion_tienda,
+        {
+            "ventas_totales": fila.detalles_pedido.total_con_descuento,
+            "num_productos": len(fila.detalles_pedido.articulos),
+            "nivel_cliente": fila.cliente.nivel_cliente
+        }
+    )
+).groupByKey().mapValues(
+    lambda metricas: {
+        "ingresos_totales": sum(m["ventas_totales"] for m in metricas),
+        "promedio_productos_por_transaccion": sum(m["num_productos"] for m in metricas) / len(list(metricas)),
+        "clientes_nivel_oro": sum(1 for m in metricas if m["nivel_cliente"] == "oro")
+    }
+).toDF(["tienda", "metricas"])
+
+# Mostrar métricas por tienda
+metricas_tienda.show(truncate=False)
+
+# Guardar resultados
+df_transformado.write.mode("overwrite").parquet("datos_ventas_transformados")
+metricas_tienda.write.mode("overwrite").json("metricas_tienda")
+
+--------------------
+Filter
+--------------------
+
+# Instalar PySpark
+!pip install pyspark
+
+# Importaciones necesarias
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, udf, explode, array_contains, size
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, ArrayType, FloatType, BooleanType
+import json
+from datetime import datetime
+
+# Crear sesión de Spark
+spark = SparkSession.builder \
+    .appName("Sistema de Análisis Médico") \
+    .config("spark.executor.memory", "2g") \
+    .config("spark.driver.memory", "4g") \
+    .getOrCreate()
+
+# Definir el esquema para los datos médicos
+schema_medico = StructType([
+    StructField("id_paciente", StringType(), False),
+    StructField("fecha_ingreso", StringType(), True),
+    StructField("edad", IntegerType(), True),
+    StructField("genero", StringType(), True),
+    StructField("presion_sistolica", IntegerType(), True),
+    StructField("presion_diastolica", IntegerType(), True),
+    StructField("frecuencia_cardiaca", IntegerType(), True),
+    StructField("temperatura", FloatType(), True),
+    StructField("nivel_oxigeno", IntegerType(), True),
+    StructField("diagnosticos", ArrayType(StringType()), True),
+    StructField("medicamentos", ArrayType(StringType()), True),
+    StructField("nivel_glucosa", FloatType(), True),
+    StructField("colesterol", FloatType(), True),
+    StructField("trigliceridos", FloatType(), True),
+    StructField("departamento", StringType(), True),
+    StructField("es_urgente", BooleanType(), True)
+])
+
+# Crear datos de ejemplo
+datos_medicos = [
+    ("P001", "2024-03-13", 65, "M", 145, 95, 88, 37.2, 95, 
+     ["hipertension", "diabetes"], ["metformina", "losartan"],
+     180.5, 240.0, 200.0, "cardiologia", True),
+    ("P002", "2024-03-13", 45, "F", 120, 80, 72, 36.8, 98,
+     ["asma"], ["salbutamol"],
+     95.0, 180.0, 150.0, "neumologia", False),
+    ("P003", "2024-03-13", 55, "M", 160, 100, 90, 37.8, 92,
+     ["hipertension", "obesidad"], ["enalapril", "metformina"],
+     200.0, 260.0, 220.0, "cardiologia", True),
+]
+
+# Crear DataFrame
+df_medico = spark.createDataFrame(datos_medicos, schema_medico)
+
+# 1. Filtro para pacientes de alto riesgo cardiovascular
+pacientes_riesgo_cv = df_medico.filter(
+    (col("presion_sistolica") > 140) |
+    (col("presion_diastolica") > 90) |
+    (col("colesterol") > 200)
+)
+
+# 2. Filtro para pacientes diabéticos con glucosa alta
+pacientes_diabetes_descontrolada = df_medico.filter(
+    (col("nivel_glucosa") > 126) &
+    array_contains(col("diagnosticos"), "diabetes")
+)
+
+# 3. Filtro complejo para urgencias
+pacientes_urgencia = df_medico.filter(
+    ((col("presion_sistolica") > 180) |
+     (col("presion_diastolica") > 110) |
+     (col("frecuencia_cardiaca") > 100) |
+     (col("temperatura") > 38.5) |
+     (col("nivel_oxigeno") < 92)) &
+    (col("es_urgente") == True)
+)
+
+# 4. Filtro para pacientes cardiacos con múltiples condiciones
+pacientes_cardiacos_complejos = df_medico.filter(
+    (col("departamento") == "cardiologia") &
+    (size(col("diagnosticos")) > 1) &
+    (col("edad") > 60)
+)
+
+# 5. Filtro para pacientes que requieren seguimiento especial
+seguimiento_especial = df_medico.filter(
+    (array_contains(col("diagnosticos"), "hipertension")) &
+    (col("presion_sistolica") > 140) &
+    (size(col("medicamentos")) >= 2)
+)
+
+# Mostrar resultados de cada filtro
+print("\n=== Pacientes de Alto Riesgo Cardiovascular ===")
+pacientes_riesgo_cv.show(truncate=False)
+
+print("\n=== Pacientes con Diabetes Descontrolada ===")
+pacientes_diabetes_descontrolada.show(truncate=False)
+
+print("\n=== Pacientes en Urgencias ===")
+pacientes_urgencia.show(truncate=False)
+
+print("\n=== Pacientes Cardíacos Complejos ===")
+pacientes_cardiacos_complejos.show(truncate=False)
+
+print("\n=== Pacientes en Seguimiento Especial ===")
+seguimiento_especial.show(truncate=False)
+
+# Análisis estadístico
+print("\n=== Estadísticas de Pacientes ===")
+print(f"Total de pacientes: {df_medico.count()}")
+print(f"Pacientes de alto riesgo CV: {pacientes_riesgo_cv.count()}")
+print(f"Pacientes con diabetes descontrolada: {pacientes_diabetes_descontrolada.count()}")
+print(f"Pacientes en urgencias: {pacientes_urgencia.count()}")
+print(f"Pacientes cardiacos complejos: {pacientes_cardiacos_complejos.count()}")
+print(f"Pacientes en seguimiento especial: {seguimiento_especial.count()}")
+
+# Guardar resultados
+pacientes_riesgo_cv.write.mode("overwrite").parquet("pacientes_riesgo_cv")
+pacientes_urgencia.write.mode("overwrite").parquet("pacientes_urgencia")
+
+# Detener la sesión de Spark
+spark.stop()
+
+--------------------
+FlatMap
+--------------------
+
+
+# Instalar PySpark
+!pip install pyspark
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import explode, col, split, to_timestamp, window
+from pyspark.sql.types import StructType, StructField, StringType, TimestampType, ArrayType
+import json
+from datetime import datetime
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+    .appName("Social Media Log Analysis") \
+    .getOrCreate()
+
+# Definir el esquema para los logs de redes sociales
+schema = StructType([
+    StructField("timestamp", StringType(), True),
+    StructField("user_id", StringType(), True),
+    StructField("post_content", StringType(), True),
+    StructField("mentions", StringType(), True),
+    StructField("hashtags", StringType(), True),
+    StructField("shared_links", StringType(), True)
+])
+
+# Datos de ejemplo (en la práctica, estos vendrían de un archivo o stream)
+sample_logs = [
+    {
+        "timestamp": "2024-01-15 10:30:00",
+        "user_id": "user123",
+        "post_content": "Check out this amazing #AI article! @tech_news @ai_daily https://example.com/ai-news",
+        "mentions": "@tech_news,@ai_daily",
+        "hashtags": "#AI,#Technology,#Future",
+        "shared_links": "https://example.com/ai-news,https://example.com/tech"
+    },
+    {
+        "timestamp": "2024-01-15 10:35:00",
+        "user_id": "user456",
+        "post_content": "Learning #Python and #Spark with @coding_mentor https://example.com/learn-spark",
+        "mentions": "@coding_mentor",
+        "hashtags": "#Python,#Spark,#BigData",
+        "shared_links": "https://example.com/learn-spark"
+    }
+]
+
+# Convertir los datos de ejemplo a RDD y luego a DataFrame
+rdd = spark.sparkContext.parallelize([json.dumps(log) for log in sample_logs])
+
+# Función de transformación flatMap para procesar cada registro
+def process_social_log(json_str):
+    """
+    Procesa cada registro de log y genera múltiples registros expandidos
+    """
+    log = json.loads(json_str)
+    timestamp = log['timestamp']
+    user_id = log['user_id']
+    
+    # Procesar menciones
+    mentions = log['mentions'].split(',') if log['mentions'] else []
+    mention_records = [
+        {
+            'timestamp': timestamp,
+            'user_id': user_id,
+            'interaction_type': 'mention',
+            'interaction_value': mention.strip(),
+            'category': 'user_interaction'
+        } for mention in mentions
+    ]
+    
+    # Procesar hashtags
+    hashtags = log['hashtags'].split(',') if log['hashtags'] else []
+    hashtag_records = [
+        {
+            'timestamp': timestamp,
+            'user_id': user_id,
+            'interaction_type': 'hashtag',
+            'interaction_value': hashtag.strip(),
+            'category': 'content_categorization'
+        } for hashtag in hashtags
+    ]
+    
+    # Procesar enlaces compartidos
+    links = log['shared_links'].split(',') if log['shared_links'] else []
+    link_records = [
+        {
+            'timestamp': timestamp,
+            'user_id': user_id,
+            'interaction_type': 'shared_link',
+            'interaction_value': link.strip(),
+            'category': 'content_sharing'
+        } for link in links
+    ]
+    
+    # Combinar todos los registros
+    return mention_records + hashtag_records + link_records
+
+# Aplicar la transformación flatMap
+processed_rdd = rdd.flatMap(process_social_log)
+
+# Convertir a DataFrame para análisis adicional
+processed_df = spark.createDataFrame(processed_rdd)
+
+# Realizar análisis sobre los datos procesados
+# 1. Contar interacciones por tipo
+interaction_counts = processed_df.groupBy("interaction_type").count()
+
+# 2. Encontrar usuarios más activos
+active_users = processed_df.groupBy("user_id").count().orderBy(col("count").desc())
+
+# 3. Análisis de tendencias por ventana de tiempo
+windowed_trends = processed_df \
+    .withColumn("ts", to_timestamp(col("timestamp"))) \
+    .groupBy(
+        window(col("ts"), "1 hour"),
+        "interaction_type",
+        "interaction_value"
+    ) \
+    .count() \
+    .orderBy(col("window").desc())
+
+# 4. Filtrar y mostrar hashtags más populares
+popular_hashtags = processed_df \
+    .filter(col("interaction_type") == "hashtag") \
+    .groupBy("interaction_value") \
+    .count() \
+    .orderBy(col("count").desc())
+
+# Mostrar resultados
+print("=== Conteo de Interacciones por Tipo ===")
+interaction_counts.show()
+
+print("\n=== Usuarios más Activos ===")
+active_users.show()
+
+print("\n=== Tendencias por Ventana de Tiempo ===")
+windowed_trends.show(truncate=False)
+
+print("\n=== Hashtags más Populares ===")
+popular_hashtags.show(truncate=False)
+
+# Guardar resultados (comentado para ejemplo)
+# processed_df.write.parquet("processed_social_logs")
+
+# Detener la sesión de Spark
+spark.stop()
+
+--------------------
+Union
+--------------------
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+    .appName("Union Example") \
+    .getOrCreate()
+
+# Crear el primer DataFrame (ventas online)
+ventas_online = spark.createDataFrame([
+    ("2024-01", "Laptop", 1200, 5),
+    ("2024-01", "Mouse", 25, 10),
+    ("2024-01", "Teclado", 45, 8)
+], ["mes", "producto", "precio", "cantidad"])
+
+# Crear el segundo DataFrame (ventas en tienda)
+ventas_tienda = spark.createDataFrame([
+    ("2024-01", "Monitor", 200, 3),
+    ("2024-01", "Laptop", 1200, 2),
+    ("2024-01", "Mouse", 25, 15)
+], ["mes", "producto", "precio", "cantidad"])
+
+# Unir los dos DataFrames usando union
+todas_las_ventas = ventas_online.union(ventas_tienda)
+
+# Realizar algunos análisis básicos
+print("=== Total de Registros Combinados ===")
+print(f"Número total de registros: {todas_las_ventas.count()}")
+
+print("\n=== Ventas Totales por Producto ===")
+todas_las_ventas.groupBy("producto") \
+    .agg({"cantidad": "sum", "precio": "first"}) \
+    .withColumn("total_ventas", col("sum(cantidad)") * col("first(precio)")) \
+    .select("producto", "sum(cantidad)", "total_ventas") \
+    .orderBy(col("total_ventas").desc()) \
+    .show()
+
+# Detener la sesión de Spark
+spark.stop()
+
+--------------------
+intersection
+--------------------
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+    .appName("Intersect Example") \
+    .getOrCreate()
+
+# Crear DataFrame para la tienda del norte
+tienda_norte = spark.createDataFrame([
+    ("Laptop HP", 1200, "Electrónica"),
+    ("Monitor Dell", 300, "Electrónica"),
+    ("Teclado Gamer", 80, "Accesorios"),
+    ("Mouse Inalámbrico", 25, "Accesorios"),
+    ("Disco SSD", 100, "Componentes")
+], ["producto", "precio", "categoria"])
+
+# Crear DataFrame para la tienda del sur
+tienda_sur = spark.createDataFrame([
+    ("Laptop HP", 1250, "Electrónica"),
+    ("Monitor LG", 280, "Electrónica"),
+    ("Mouse Inalámbrico", 30, "Accesorios"),
+    ("Disco SSD", 110, "Componentes"),
+    ("Webcam HD", 45, "Accesorios")
+], ["producto", "precio", "categoria"])
+
+# Obtener solo los nombres de productos de cada tienda
+productos_norte = tienda_norte.select("producto")
+productos_sur = tienda_sur.select("producto")
+
+# Encontrar productos comunes usando intersect
+productos_comunes = productos_norte.intersect(productos_sur)
+
+print("=== Productos Comunes en Ambas Tiendas ===")
+productos_comunes.show()
+
+# Análisis adicional de productos comunes
+print("\n=== Comparación de Precios de Productos Comunes ===")
+for producto in productos_comunes.collect():
+    nombre_producto = producto['producto']
+    precio_norte = tienda_norte.filter(col("producto") == nombre_producto).select("precio").first()[0]
+    precio_sur = tienda_sur.filter(col("producto") == nombre_producto).select("precio").first()[0]
+    diferencia = abs(precio_norte - precio_sur)
+    
+    print(f"Producto: {nombre_producto}")
+    print(f"Precio Norte: ${precio_norte}")
+    print(f"Precio Sur: ${precio_sur}")
+    print(f"Diferencia: ${diferencia}")
+    print("-" * 40)
+
+# Encontrar productos comunes por categoría
+productos_comunes_categoria = tienda_norte.select("producto", "categoria") \
+    .intersect(tienda_sur.select("producto", "categoria"))
+
+print("\n=== Productos Comunes por Categoría ===")
+productos_comunes_categoria.show()
+
+# Detener la sesión de Spark
+spark.stop()
+
+--------------------
+Distinc
+--------------------
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, countDistinct
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+    .appName("Distinct Example") \
+    .getOrCreate()
+
+# Crear DataFrame de ventas
+ventas = spark.createDataFrame([
+    ("2024-01", "Laptop", "Electrónica", 5),
+    ("2024-01", "Laptop", "Electrónica", 3),
+    ("2024-01", "Mouse", "Accesorios", 10),
+    ("2024-02", "Laptop", "Electrónica", 7),
+    ("2024-02", "Teclado", "Accesorios", 4),
+    ("2024-02", "Mouse", "Accesorios", 8)
+], ["mes", "producto", "categoria", "cantidad"])
+
+# Mostrar productos únicos
+print("=== Productos Únicos ===")
+productos_unicos = ventas.select("producto").distinct()
+productos_unicos.show()
+
+# Contar productos únicos por categoría
+print("\n=== Cantidad de Productos Únicos por Categoría ===")
+productos_por_categoria = ventas.groupBy("categoria") \
+    .agg(countDistinct("producto").alias("productos_unicos"))
+productos_por_categoria.show()
+
+# Detener la sesión de Spark
+spark.stop()
+
+--------------------
+groupByKey
+--------------------
+
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.appName("Complex GroupByKey Example").getOrCreate()
+
+data = [
+    ("Alice", 5), ("Bob", 3), ("Alice", 8), 
+    ("Bob", 4), ("Cathy", 7), ("Alice", 6), 
+    ("Cathy", 5), ("Bob", 5), ("David", 10)
+]
+rdd = spark.sparkContext.parallelize(data)
+
+grouped_rdd = rdd.groupByKey()
+
+averages = grouped_rdd.mapValues(lambda scores: sum(scores) / len(scores))
+
+result = averages.collect()
+for name, avg in result:
+    print(f"{name}: {avg:.2f}")
+
+--------------------
+reduceByKey
+--------------------
+
+from pyspark.sql import SparkSession
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+   .appName("ReduceByKey Example") \
+   .getOrCreate()
+
+# Crear RDD de ventas diarias
+ventas_diarias = spark.sparkContext.parallelize([
+   ("Laptop", 1200),
+   ("Monitor", 300),
+   ("Laptop", 1500),
+   ("Teclado", 80),
+   ("Monitor", 350),
+   ("Teclado", 75),
+   ("Mouse", 25),
+   ("Mouse", 30)
+])
+
+# Aplicar ReduceByKey para obtener totales
+ventas_totales = ventas_diarias.reduceByKey(lambda x, y: x + y)
+
+# Mostrar resultados
+print("=== Ventas Totales por Producto ===")
+for producto, total in ventas_totales.collect():
+   print(f"Producto: {producto:<10} Total: ${total:>5}")
+
+# Detener la sesión de Spark
+spark.stop()
+
+
+--------------------
+sortByKey
+--------------------
+
+ffrom pyspark.sql import SparkSession
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+   .appName("SortByKey Example") \
+   .getOrCreate()
+
+# Crear RDD de productos y precios
+productos = spark.sparkContext.parallelize([
+   (1200, "Laptop HP"),
+   (300, "Monitor Dell"),
+   (80, "Teclado Gamer"),
+   (25, "Mouse Básico"),
+   (450, "Impresora"),
+   (150, "Disco SSD"),
+   (90, "Webcam HD")
+])
+
+# Ordenar por precio (ascendente)
+productos_asc = productos.sortByKey()
+print("=== Productos Ordenados por Precio (Ascendente) ===")
+for precio, producto in productos_asc.collect():
+   print(f"${precio:<6} - {producto}")
+
+# Ordenar por precio (descendente)
+productos_desc = productos.sortByKey(ascending=False)
+print("\n=== Productos Ordenados por Precio (Descendente) ===")
+for precio, producto in productos_desc.collect():
+   print(f"${precio:<6} - {producto}")
+
+# Detener la sesión de Spark
+spark.stop()
+
+--------------------
+Join
+--------------------
+
+from pyspark.sql import SparkSession
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+   .appName("Join Example") \
+   .getOrCreate()
+
+# Crear DataFrame de productos
+productos = spark.createDataFrame([
+   (1, "Laptop HP", "Electrónica"),
+   (2, "Monitor Dell", "Electrónica"),
+   (3, "Teclado Gaming", "Accesorios"),
+   (4, "Mouse Wireless", "Accesorios")
+], ["id_producto", "nombre", "categoria"])
+
+# Crear DataFrame de ventas
+ventas = spark.createDataFrame([
+   (1, "2024-01-15", 1200),
+   (2, "2024-01-15", 300),
+   (1, "2024-01-16", 1250),
+   (3, "2024-01-16", 80)
+], ["id_producto", "fecha", "precio"])
+
+# Realizar Join entre productos y ventas
+resultado = productos.join(
+   ventas,
+   "id_producto"
+).select(
+   "fecha",
+   "nombre",
+   "categoria",
+   "precio"
+)
+
+# Mostrar resultados
+print("=== Detalle de Ventas con Información de Productos ===")
+resultado.show()
+
+# Detener la sesión de Spark
+spark.stop()
+
+--------------------
+Cogroup
+--------------------
+
+from pyspark.sql import SparkSession
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+   .appName("CoGroup Example") \
+   .getOrCreate()
+
+# Crear RDD de ventas por región
+ventas_norte = spark.sparkContext.parallelize([
+   ("Laptop", 3),
+   ("Monitor", 5),
+   ("Teclado", 8),
+   ("Mouse", 12)
+])
+
+ventas_sur = spark.sparkContext.parallelize([
+   ("Laptop", 4),
+   ("Monitor", 3),
+   ("Webcam", 6),
+   ("Mouse", 10)
+])
+
+# Aplicar CoGroup para comparar ventas
+ventas_comparadas = ventas_norte.cogroup(ventas_sur)
+
+# Mostrar resultados comparativos
+print("=== Comparación de Ventas por Región ===")
+for producto, (ventas_n, ventas_s) in ventas_comparadas.collect():
+   print(f"\nProducto: {producto}")
+   print(f"Ventas Norte: {list(ventas_n)}")
+   print(f"Ventas Sur: {list(ventas_s)}")
+
+# Detener la sesión de Spark
+spark.stop()
+
+--------------------
+Coalesce
+--------------------
+
+from pyspark.sql import SparkSession
+
+# Inicializar Spark Session
+spark = SparkSession.builder \
+   .appName("CoGroup Example") \
+   .getOrCreate()
+
+# Crear RDD de ventas por región
+ventas_norte = spark.sparkContext.parallelize([
+   ("Laptop", 3),
+   ("Monitor", 5),
+   ("Teclado", 8),
+   ("Mouse", 12)
+])
+
+ventas_sur = spark.sparkContext.parallelize([
+   ("Laptop", 4),
+   ("Monitor", 3),
+   ("Webcam", 6),
+   ("Mouse", 10)
+])
+
+# Aplicar CoGroup para comparar ventas
+ventas_comparadas = ventas_norte.cogroup(ventas_sur)
+
+# Mostrar resultados comparativos
+print("=== Comparación de Ventas por Región ===")
+for producto, (ventas_n, ventas_s) in ventas_comparadas.collect():
+   print(f"\nProducto: {producto}")
+   print(f"Ventas Norte: {list(ventas_n)}")
+   print(f"Ventas Sur: {list(ventas_s)}")
+
+# Detener la sesión de Spark
+spark.stop()
+
